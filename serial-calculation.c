@@ -18,6 +18,7 @@ int main(int argc, char *argv[]) {
       printf("Parámetros: Tlado pasos\n");
       exit(1);
    }
+   
    int Tlado = atoi(argv[1]); //N --> Tamaño de la matriz cuadrada
    int pasos = atoi(argv[2]); //M --> Cantidad de pasos
    if (Tlado <= 0 || pasos < 0) {
