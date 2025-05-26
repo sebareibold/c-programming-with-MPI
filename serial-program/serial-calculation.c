@@ -18,9 +18,10 @@ int main(int argc, char *argv[]) {
       printf("Parámetros: Tlado pasos\n");
       exit(1);
    }
-   
+
    int Tlado = atoi(argv[1]); //N --> Tamaño de la matriz cuadrada
    int pasos = atoi(argv[2]); //M --> Cantidad de pasos
+   
    if (Tlado <= 0 || pasos < 0) {
       printf("ERROR: valores incorrectos en parámetros\n");
       exit(1);
@@ -28,10 +29,14 @@ int main(int argc, char *argv[]) {
 
    int columnas = Tlado;
    int filas = Tlado;
+
+   //Reservamos la memoria de las filas y columnas
    int *fila_arriba = malloc(sizeof(float)*columnas);
    int *fila_abajo = malloc(sizeof(float)*columnas);
    int *columna_izquierda = malloc(sizeof(float)*filas);
    int *columna_derecha = malloc(sizeof(float)*filas);
+
+   // Seteamos dichas columnas y filas con valores 0
    bzero(fila_arriba, sizeof(float)*columnas);
    bzero(fila_abajo, sizeof(float)*columnas);
    bzero(columna_izquierda, sizeof(float)*filas);
@@ -53,8 +58,10 @@ int main(int argc, char *argv[]) {
       printf("ERROR: No se pudo reservar memoria\n");
       exit(2);
    }
-
-   //Se calculan las direcciones de las filas
+   
+   // Asigna las direcciones de inicio para cada fila de las matrices matrizActual y matrizSiguiente
+   // (desde la fila 1 en adelante) dentro del único bloque contiguo de memoria asignado previamente. 
+   // Forma eficiente de manejar matrices 2D en C. (Arma la matris)
    for(i = 1; i < Tlado; i++){
       matrizActual[i] = *matrizActual + Tlado * i;
       matrizSiguiente[i] = *matrizSiguiente + Tlado * i;

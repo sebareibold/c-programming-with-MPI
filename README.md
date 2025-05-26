@@ -1,1 +1,0 @@
-# c-programming-with-MPI
