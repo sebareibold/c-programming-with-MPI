@@ -4,6 +4,7 @@
 #include <strings.h>
 #include "mpi/mpi.h"
 #include <math.h>
+#include <linux/time.h>
 
 #define Cx 0.1f
 #define Cy 0.1f
@@ -48,10 +49,10 @@ int main(int argc, char *argv[])
     /* =======================================================  SECCION RELACIONADA A MEMORIA (MATRIZ Y ARREGLOS) ======================================================= */
 
     // Bloque addiciones para cada el envio de filas o columnas vecinas
-    float *fila_arriba = (float *) malloc(sizeof(float) * columnas);
-    float *fila_abajo = (float *) malloc(sizeof(float) * columnas);
-    float *columna_izquierda = (float *) malloc(sizeof(float) * filas);
-    float *columna_derecha = (float*) malloc(sizeof(float) * filas);
+    float *fila_arriba = (float *)malloc(sizeof(float) * columnas);
+    float *fila_abajo = (float *)malloc(sizeof(float) * columnas);
+    float *columna_izquierda = (float *)malloc(sizeof(float) * filas);
+    float *columna_derecha = (float *)malloc(sizeof(float) * filas);
     bzero(fila_arriba, sizeof(float) * columnas);
     bzero(fila_abajo, sizeof(float) * columnas);
     bzero(columna_izquierda, sizeof(float) * filas);
@@ -72,7 +73,7 @@ int main(int argc, char *argv[])
         exit(2);
     }
 
-    for (i = 1; i < Tlado; i++)
+    for (i = 0; i < Tlado; i++)
     {
         matrizLocal[i] = *matrizLocal + Tlado * i;
         matrizSiguiente[i] = *matrizSiguiente + Tlado * i;
@@ -88,7 +89,8 @@ int main(int argc, char *argv[])
     MPI_Comm COMM_CART;
     MPI_Status status;
 
-    int dims[] = {((int)sqrt(size)), size / ((int)sqrt(size))}; // Determinamos la cantidad de filas y columnas del "MAPA"
+    int dims[2];
+    MPI_Dims_create(size, 2, dims);
 
     int periods[] = {0, 0}; // No sera periodica ninguna dimension.
 
@@ -98,7 +100,7 @@ int main(int argc, char *argv[])
 
     /* ======================================================= CREACION DEL MAPA: 2 DIMENSIONES (NO PERIODICO) ========================================================== */
 
-    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, true, &COMM_CART);
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &COMM_CART);
 
     /* ============================================================= (1) INICIALIZACION DE LA MATRIZ  =============================================================== */
 
@@ -129,13 +131,13 @@ int main(int argc, char *argv[])
             MPI_Send(&matrizLocal[0][0], Tlado, MPI_FLOAT, arriba, 0, COMM_CART);
 
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo RECIBO su fila superior
-            MPI_Recv(&fila_arriba[0], Tlado, MPI_FLOAT, abajo, 0, COMM_CART, &status);
+            MPI_Recv(&fila_abajo[0], Tlado, MPI_FLOAT, abajo, 0, COMM_CART, &status);
 
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo MANDO mi fila inferior
             MPI_Send(&matrizLocal[Tlado - 1][0], Tlado, MPI_FLOAT, abajo, 0, COMM_CART);
 
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba RECIBO su fila inferior
-            MPI_Recv(&fila_abajo[0], Tlado, MPI_FLOAT, arriba, 0, COMM_CART, &status);
+            MPI_Recv(&fila_arriba[0], Tlado, MPI_FLOAT, arriba, 0, COMM_CART, &status);
 
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna IZQ.
             MPI_Send(&matrizLocal[0][0], 1, vectorVertical, izq, 0, COMM_CART);
@@ -266,8 +268,12 @@ int main(int argc, char *argv[])
     // Se almacena la matriz final en un archivo
     char nombre[30];
     i = j = 0;
-    sprintf(nombre, "subgrid_%d_%d.out", i, j);
+    int coords[2];
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coords);                // Obtener coordenadas
+
+    sprintf(nombre, "subgrid_%d_%d.out", coords[0], coords[1]); // Usar coordenadas en el nombre
     FILE *f = fopen(nombre, "w");
+
     if (f == NULL)
     {
         printf("ERROR: No se pudo abrir el archivo\n");
@@ -280,6 +286,16 @@ int main(int argc, char *argv[])
         fprintf(f, "\n");
     }
     fclose(f);
+
+    free(fila_arriba);
+    free(fila_abajo);
+    free(columna_izquierda);
+    free(columna_derecha);
+    free(*matrizLocal);
+    free(matrizLocal);
+    MPI_Type_free(&vectorVertical);
+
+    MPI_Finalize();
 
     return 0;
 }
