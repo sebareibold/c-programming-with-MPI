@@ -6,6 +6,13 @@
 
 #define Cx 0.1f
 #define Cy 0.1f
+/*
+
+    1) Cada proceso hace la inicializacion de su MATRIZ (TENE encuenta las coordenanas del MAPA y Tlado)
+    2) Cominucacio(tanto recibir como enviar) --> Todo lo recibido se almacena en los vectores auxiliares
+    3) Ya con los datos hacemos el calculo --> Imprimimos nuestro .out
+    4) El script genera el .out general a partir de los otro sub.... .out
+*/
 
 double sampleTime()
 {
@@ -36,10 +43,10 @@ int main(int argc, char *argv[])
     int filas = Tlado;
 
     // Reservamos la memoria de las filas y columnas
-    int *fila_arriba = malloc(sizeof(float) * columnas);
-    int *fila_abajo = malloc(sizeof(float) * columnas);
-    int *columna_izquierda = malloc(sizeof(float) * filas);
-    int *columna_derecha = malloc(sizeof(float) * filas);
+    float *fila_arriba = malloc(sizeof(float) * columnas);
+    float *fila_abajo = malloc(sizeof(float) * columnas);
+    float *columna_izquierda = malloc(sizeof(float) * filas);
+    float *columna_derecha = malloc(sizeof(float) * filas);
 
     // Seteamos dichas columnas y filas con valores 0
     bzero(fila_arriba, sizeof(float) * columnas);
@@ -98,26 +105,28 @@ int main(int argc, char *argv[])
     // Damos la cantidad de dimensiones (columnas y filas)
     int dims[] = {((int)sqrt(size)), size / ((int)sqrt(size))};
     int periods[] = {0, 0}; // No sera periodica ninguna dimension.
-    float subMatriz();
-    int coord[2]; // Podemos almacenar coordenadas 2D
-
+    int coord[2];           // Podemos almacenar coordenadas 2D
+    int cant_filas_mapa = dims[0], cant_columnas_mapa = [1];
     int tamañio_local_fil = Tlado / dims[0];
     int tamañio_local_col = Tlado / dims[1];
+    int submatriz_instans[tamañio_local_fil][tamañio_local_col];
 
+    // Creacion la topologia cartesiana, 2 dims, cant de filas y columnas (dimns)
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, true, &COMM_CART);
     if (COMM_CART != MPI_COMM_NULL)
     {
         MPI_Comm_rank(COMM_CART, &rank_cart); // Obtenemos el nuevo rango, por el nuevo comunicador
 
-        MPI_Type_vector(tamañio_local_fil, 1, tamañio_local_col, MPI_INT, &subMatriz); // Guardamos el tipo de dato
-        MPI_Type_commit(&subMatriz);                                                   // Confirmamos el tipo para poder usarlo.
+        MPI_Datatype subMatriz;
+        MPI_Type_vector(tamañio_local_col, 1, tamañio_local_fil, MPI_FLOAT, &subMatriz); // Guardamos el tipo de dato
+        MPI_Type_commit(&subMatriz);                                                     // Confirmamos el tipo para poder usarlo.
 
         if (rank == 0)
         {
-
+            // Mandamos a cada proceso su submatriz correspondiente.
             int aux, rank_cart;
-            for (int i = 0; i < dims[0]; i++) // para cada proceso se reparte su parte
-                for (int j = 0; j < dims[1]; j++)
+            for (int i = 0; i < cant_filas_mapa; i++) // para cada proceso se reparte su parte
+                for (int j = 0; j < cant_columnas_mapa; j++)
                 {
                     coord[0] = i;
                     coord[1] = j;
@@ -131,10 +140,12 @@ int main(int argc, char *argv[])
                     }
                 }
 
+            // Obtengo mi cordenada
             MPI_Cart_coords(COMM_CART, rank_cart, 2, coord);
         }
         else if (rank != 0)
         {
+            // Cada proceso (menos el 0) espera recibir la submatriz del proceso 0
             MPI_Cart_coords(COMM_CART, rank_cart, 2, coord);
             MPI_Recv(&matrizLocal[tamañio_local_fil * coord[0]][tamañio_local_col * coord[1]], 1, subMatriz, MPI_ANY_SOURCE, 0, COMM_CART, &status);
         }
@@ -142,60 +153,61 @@ int main(int argc, char *argv[])
 
     // DESPUES DE CADA PODEMOS PENSARLO EN MANDAR LAS COLUMNAS SI ES Q TIENE VECINOS, COMO EL EJEMPLO DEL UNIVERSIDAD DE GRANADA
     MPI_Datatype vectorVertical;
-    MPI_Type_vector(Tlado, 1, 1, MPI_INT, &vectorVertical);
+    MPI_Type_vector(tamañio_local_fil, 1, tamañio_local_col, MPI_FLOAT, &vectorVertical);
     MPI_Type_commit(&vectorVertical);
 
-    MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); // dame los vecinos (destino)
-    // lo mismo para la dimension 1
-    MPI_Cart_shift(COMM_CART, 1, 1, &izq, &der);
-
-    if (arriba != MPI_PROC_NULL) // si tengo vecino arriba mando mi fila superior
-        MPI_Send(&ImagenLocal[tamañio_local_fil * coord[0]]
-                             [tamañio_local_col * coord[1]],
-                 tamañio_local_fil, MPI_INT, arriba, 0, COMM_CART);
-
-    if (abajo != MPI_PROC_NULL) // si tengo vecino abajo recibo su fila superior
-        MPI_Recv(&ImagenLocal[(tamañio_local_fil * coord[0]) + tamañio_local_fil]
-                             [tamañio_local_col * coord[1]],
-                 tamañio_local_fil, MPI_INT, abajo, 0, COMM_CART, &status);
-
-    if (abajo != MPI_PROC_NULL) // si tengo vecino abajo mando mi fila inferior
-        MPI_Send(&ImagenLocal[(tamañio_local_fil * coord[0]) + tamañio_local_fil - 1]
-                             [tamañio_local_col * coord[1]],
-                 tamañio_local_fil, MPI_INT, abajo, 0, COMM_CART);
-
-    if (arriba != MPI_PROC_NULL) // si tengo vecino arriba recibo su fila inferior
-        MPI_Recv(&ImagenLocal[(tamañio_local_fil * coord[0]) - 1]
-                             [tamañio_local_col * coord[1]],
-                 tamañio_local_fil, MPI_INT, arriba, 0, COMM_CART, &status);
-
-    if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna izquida.
-        MPI_Send(&ImagenLocal[tamañio_local_fil * coord[0]]
-                             [tamañio_local_col * coord[1]],
-                 1, vectorVertical, izq, 0, COMM_CART);
-
-    if (der != MPI_PROC_NULL) // si tengo vecino derecha recibo su columna derecha.
-        MPI_Recv(&ImagenLocal[tamañio_local_fil * coord[0]]
-                             [(tamañio_local_col * coord[1]) + tamañio_local_col],
-                 1, vectorVertical, der, 0, COMM_CART,
-                 &status);
-
-    if (der != MPI_PROC_NULL) // si tengo vecino derecha mando mi columna derecha
-        MPI_Send(&ImagenLocal[tamañio_local_fil * coord[0]]
-                             [(tamañio_local_col * coord[1]) + tama_local - 1],
-                 1, vectorVertical, der, 0,
-                 COMM_CART);
-
-    if (izq != MPI_PROC_NULL) // si tengo vecino izquierda recibo su columna derecha.
-        MPI_Recv(&ImagenLocal[tamañio_local_fil * coord[0]]
-                             [(tamañio_local_col * coord[1]) - 1],
-                 1, vectorVertical, izq, 0, COMM_CART, &status);
-
     // REALIZAR LOS CALCULOS
-
     float e_arriba, e_abajo, e_izq, e_der, yo;
     for (p = 0; p < pasos; p++)
     {
+
+        // Obtenemos los RANKS de los vecinos de arriba y abajo
+        MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); // dame los vecinos (destino)
+
+        // lo mismo para la dimension 1,RANK de los vecinos izq y der
+        MPI_Cart_shift(COMM_CART, 1, 1, &izq, &der);
+
+        if (arriba != MPI_PROC_NULL) // si tengo vecino arriba MANDO mi fila superior
+            MPI_Send(&matrizLocal[tamañio_local_fil * coord[0]]
+                                 [tamañio_local_col * coord[1]],
+                     tamañio_local_col, MPI_FLOAT, arriba, 0, COMM_CART);
+
+        if (abajo != MPI_PROC_NULL) // si tengo vecino abajo RECIBO su fila superior
+            MPI_Recv(&matrizLocal[(tamañio_local_fil * coord[0]) + tamañio_local_fil]
+                                 [tamañio_local_col * coord[1]],
+                     tamañio_local_fil, MPI_FLOAT, abajo, 0, COMM_CART, &status);
+
+        if (abajo != MPI_PROC_NULL) // si tengo vecino abajo MANDO mi fila inferior
+            MPI_Send(&matrizLocal[(tamañio_local_fil * coord[0]) + tamañio_local_fil - 1]
+                                 [tamañio_local_col * coord[1]],
+                     tamañio_local_fil, MPI_FLOAT, abajo, 0, COMM_CART);
+
+        if (arriba != MPI_PROC_NULL) // si tengo vecino arriba RECIBO su fila inferior
+            MPI_Recv(&matrizLocal[(tamañio_local_fil * coord[0]) - 1]
+                                 [tamañio_local_col * coord[1]],
+                     tamañio_local_fil, MPI_FLOAT, arriba, 0, COMM_CART, &status);
+
+        if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna IZQ.
+            MPI_Send(&matrizLocal[tamañio_local_fil * coord[0]]
+                                 [tamañio_local_col * coord[1]],
+                     1, vectorVertical, izq, 0, COMM_CART);
+
+        if (der != MPI_PROC_NULL) // si tengo vecino derecha recibo su columna IZQ.
+            MPI_Recv(&matrizLocal[tamañio_local_fil * coord[0]]
+                                 [(tamañio_local_col * coord[1]) + tamañio_local_col],
+                     1, vectorVertical, der, 0, COMM_CART,
+                     &status);
+
+        if (der != MPI_PROC_NULL) // si tengo vecino derecha mando mi columna derecha
+            MPI_Send(&matrizLocal[tamañio_local_fil * coord[0]]
+                                 [(tamañio_local_col * coord[1]) + tamañio_local_col - 1],
+                     1, vectorVertical, der, 0,
+                     COMM_CART);
+
+        if (izq != MPI_PROC_NULL) // si tengo vecino izquierda recibo su columna derecha.
+            MPI_Recv(&matrizLocal[tamañio_local_fil * coord[0]]
+                                 [(tamañio_local_col * coord[1]) - 1],
+                     1, vectorVertical, izq, 0, COMM_CART, &status);
 
         // Se procesa el interior
         for (i = 1; i < filas - 1; i++)
