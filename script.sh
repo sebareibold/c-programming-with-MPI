@@ -8,4 +8,4 @@ mpiCC parralel-calculation.c -o parralel-calculation
 
 
 # Ejecuta el programa MPI 
-mpirun -np $NUM_PROCESOS ./parralel-calculation 10 1
+mpirun -np $NUM_PROCESOS ./parralel-calculation 16  1

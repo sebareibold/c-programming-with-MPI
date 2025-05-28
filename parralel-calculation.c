@@ -4,13 +4,12 @@
 #include <strings.h>
 #include "mpi/mpi.h"
 #include <math.h>
-#include <linux/time.h>
 
 #define Cx 0.1f
 #define Cy 0.1f
 /*
 
-    1) Cada proceso hace la inicializacion de su MATRIZ (TENE encuenta las coodenadasenanas del MAPA y Tlado)
+    1) Cada proceso hace la inicializacion de su MATRIZ (TENE encuenta las coordenadasenanas del MAPA y Tlado)
     2) Cominucacio(tanto recibir como enviar) --> Todo lo recibido se almacena en los vectores auxiliares
     3) Ya con los datos hacemos el calculo --> Imprimimos nuestro .out
     4) El script genera el .out general a partir de los otro sub.... .out
@@ -25,7 +24,7 @@ double sampleTime()
 
 int main(int argc, char *argv[])
 {
-    register int p, i, j;
+    int p, i, j;
     if (argc != 3)
     {
         printf("Parámetros: Tlado pasos\n");
@@ -43,29 +42,56 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    int columnas = Tlado;
-    int filas = Tlado;
+    int rank, size, rank_cart, arriba, abajo, izq, der;
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    int dims[] = {((int)sqrt(size)), size / ((int)sqrt(size))};
+
+    int periods[] = {0, 0}; // No sera periodica ninguna dimension.
+
+    int coordenadas[2];
+
+    int cant_filas_mapa = dims[0], cant_columnas_mapa = dims[1];
+
+    // Caso TLado Divisible (por cantidad de procesos)
+    int filas = Tlado / dims[0];
+    int columnas = Tlado / dims[1];
+
+    int exceso_fila = Tlado % dims[0];
+    int exceso_columna = Tlado % dims[1];
+
+    int local_filas = filas + (coordenadas[0] < exceso_fila ? 1 : 0);
+    int local_columnas = columnas + (coordenadas[1] < exceso_columna ? 1 : 0);
+
+    int offset_fila = coordenadas[0] * filas + (coordenadas[0] < exceso_fila ? coordenadas[0] : exceso_fila);
+    int offset_columna = coordenadas[1] * columnas + (coordenadas[1] < exceso_columna ? coordenadas[1] : exceso_columna);
+    
+    // Caso Tlado NO divisible por la cantidad de proceso
 
     /* =======================================================  SECCION RELACIONADA A MEMORIA (MATRIZ Y ARREGLOS) ======================================================= */
 
     // Bloque addiciones para cada el envio de filas o columnas vecinas
-    float *fila_arriba = (float *)malloc(sizeof(float) * columnas);
-    float *fila_abajo = (float *)malloc(sizeof(float) * columnas);
-    float *columna_izquierda = (float *)malloc(sizeof(float) * filas);
-    float *columna_derecha = (float *)malloc(sizeof(float) * filas);
-    bzero(fila_arriba, sizeof(float) * columnas);
-    bzero(fila_abajo, sizeof(float) * columnas);
-    bzero(columna_izquierda, sizeof(float) * filas);
-    bzero(columna_derecha, sizeof(float) * filas);
+    float *fila_arriba = (float *)malloc(sizeof(float) * local_columnas);
+    float *fila_abajo = (float *)malloc(sizeof(float) * local_columnas);
+    float *columna_izquierda = (float *)malloc(sizeof(float) * local_filas);
+    float *columna_derecha = (float *)malloc(sizeof(float) * local_filas);
+
+    bzero(fila_arriba, sizeof(float) * local_columnas);
+    bzero(fila_abajo, sizeof(float) * local_columnas);
+    bzero(columna_izquierda, sizeof(float) * local_filas);
+    bzero(columna_derecha, sizeof(float) * local_filas);
 
     // Matriz Local de cada Proceso, dicha matriz es de TLado X TLado
     float **matrizLocal;
     float **matrizSiguiente;
     float **aux;
-    matrizLocal = (float **)malloc(sizeof(float *) * Tlado); // Declaracion eficiente de la matriz
-    *matrizLocal = (float *)malloc(sizeof(float) * Tlado * Tlado);
-    matrizSiguiente = (float **)malloc(sizeof(float *) * Tlado); // Declaracion eficiente de la matriz
-    *matrizSiguiente = (float *)malloc(sizeof(float) * Tlado * Tlado);
+
+    matrizLocal = (float **)malloc(sizeof(float *) * local_filas); // Declaracion eficiente de la matriz
+    *matrizLocal = (float *)malloc(sizeof(float) * local_columnas * local_filas);
+    matrizSiguiente = (float **)malloc(sizeof(float *) * local_filas); // Declaracion eficiente de la matriz
+    *matrizSiguiente = (float *)malloc(sizeof(float) * local_filas * local_columnas);
 
     if (matrizLocal == NULL || matrizSiguiente == NULL)
     {
@@ -73,48 +99,37 @@ int main(int argc, char *argv[])
         exit(2);
     }
 
-    for (i = 0; i < Tlado; i++)
+    for (i = 1; i < local_filas; i++)
     {
-        matrizLocal[i] = *matrizLocal + Tlado * i;
-        matrizSiguiente[i] = *matrizSiguiente + Tlado * i;
+        matrizLocal[i] = *matrizLocal + local_columnas * i;
+        matrizSiguiente[i] = *matrizSiguiente + local_columnas * i;
     }
 
     /* ============================================================= DECLARACION DE VARIABLES  =============================================================== */
 
-    int rank, size, rank_cart, arriba, abajo, izq, der;
-
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
     MPI_Comm COMM_CART;
     MPI_Status status;
-
-    int dims[2];
-    MPI_Dims_create(size, 2, dims);
-
-    int periods[] = {0, 0}; // No sera periodica ninguna dimension.
-
-    int coodenadas[2];
-
-    int cant_filas_mapa = dims[0], cant_columnas_mapa = dims[1];
 
     /* ======================================================= CREACION DEL MAPA: 2 DIMENSIONES (NO PERIODICO) ========================================================== */
 
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &COMM_CART);
 
     /* ============================================================= (1) INICIALIZACION DE LA MATRIZ  =============================================================== */
+    MPI_Comm_rank(COMM_CART, &rank_cart);
 
-    // MPI_Cart_coords(COMM_CART, rank_cart, 2, coodenadas);
-
-    for (i = 0; i < Tlado; i++)
-        for (j = 0; j < Tlado; j++)
-            matrizLocal[i][j] = (float)((i + 1)) * (Tlado + i) * (j + 1) * (Tlado + j);
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas);
+    
+    for (i = 0; i < local_filas; i++)
+        for (j = 0; j < local_columnas; j++)
+        {
+            matrizLocal[i][j] = (float)((i+offset_fila + 1)) * (Tlado + i+offset_fila) * (j + offset_columna+ 1) * (Tlado + j+offset_columna);
+        }
 
     /* ======================================================= (2) SECCION DE ENVIO Y RECEPCION CON LOS VECINOS ========================================================== */
 
     // Creamos el tipo de datos para pasar las columnas de la derecha e izquierda a los vecinos
     MPI_Datatype vectorVertical;
-    MPI_Type_vector(Tlado, 1, Tlado, MPI_FLOAT, &vectorVertical);
+    MPI_Type_vector(local_filas, 1, local_columnas, MPI_FLOAT, &vectorVertical);
     MPI_Type_commit(&vectorVertical);
 
     // REALIZAR LOS CALCULOS
@@ -128,16 +143,16 @@ int main(int argc, char *argv[])
         MPI_Cart_shift(COMM_CART, 1, 1, &izq, &der);
 
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba MANDO mi fila superior
-            MPI_Send(&matrizLocal[0][0], Tlado, MPI_FLOAT, arriba, 0, COMM_CART);
+            MPI_Send(&matrizLocal[0][0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART);
 
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo RECIBO su fila superior
-            MPI_Recv(&fila_abajo[0], Tlado, MPI_FLOAT, abajo, 0, COMM_CART, &status);
+            MPI_Recv(&fila_abajo[0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &status);
 
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo MANDO mi fila inferior
-            MPI_Send(&matrizLocal[Tlado - 1][0], Tlado, MPI_FLOAT, abajo, 0, COMM_CART);
+            MPI_Send(&matrizLocal[local_filas - 1][0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART);
 
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba RECIBO su fila inferior
-            MPI_Recv(&fila_arriba[0], Tlado, MPI_FLOAT, arriba, 0, COMM_CART, &status);
+            MPI_Recv(&fila_arriba[0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &status);
 
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna IZQ.
             MPI_Send(&matrizLocal[0][0], 1, vectorVertical, izq, 0, COMM_CART);
@@ -146,7 +161,7 @@ int main(int argc, char *argv[])
             MPI_Recv(&columna_derecha[0], 1, vectorVertical, der, 0, COMM_CART, &status);
 
         if (der != MPI_PROC_NULL) // si tengo vecino derecha mando mi columna derecha
-            MPI_Send(&matrizLocal[0][Tlado - 1], 1, vectorVertical, der, 0, COMM_CART);
+            MPI_Send(&matrizLocal[0][local_columnas - 1], 1, vectorVertical, der, 0, COMM_CART);
 
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda RECIBO su columna derecha (seria MI COLUMNA EXTERIOR UBICADA A LA IZQUIERDA).
             MPI_Recv(&columna_izquierda[0], 1, vectorVertical, izq, 0, COMM_CART, &status);
@@ -154,8 +169,8 @@ int main(int argc, char *argv[])
         /* ======================================================= (3) CALCULO DE LAS SECCION INTERIOR Y DE LOS BORDES ========================================================== */
 
         // Se procesa el interior
-        for (i = 1; i < filas - 1; i++)
-            for (j = 1; j < columnas - 1; j++)
+        for (i = 1; i < local_filas - 1; i++)
+            for (j = 1; j < local_columnas - 1; j++)
             {
                 yo = matrizLocal[i][j];
                 e_arriba = matrizLocal[i - 1][j];
@@ -167,7 +182,7 @@ int main(int argc, char *argv[])
 
         // Se procesa fila superior
         i = 0;
-        for (j = 1; j < columnas - 1; j++)
+        for (j = 1; j < local_columnas - 1; j++)
         {
             yo = matrizLocal[i][j];
             e_arriba = fila_arriba[j];
@@ -178,8 +193,8 @@ int main(int argc, char *argv[])
         }
 
         // Se procesa fila inferior
-        i = filas - 1;
-        for (j = 1; j < columnas - 1; j++)
+        i = local_filas - 1;
+        for (j = 1; j < local_columnas - 1; j++)
         {
             yo = matrizLocal[i][j];
             e_arriba = matrizLocal[i - 1][j];
@@ -191,7 +206,7 @@ int main(int argc, char *argv[])
 
         // Se procesa columna izquierda
         j = 0;
-        for (i = 1; i < filas - 1; i++)
+        for (i = 1; i < local_filas - 1; i++)
         {
             yo = matrizLocal[i][j];
             e_arriba = matrizLocal[i - 1][j];
@@ -202,8 +217,8 @@ int main(int argc, char *argv[])
         }
 
         // Se procesa columna derecha
-        j = columnas - 1;
-        for (i = 1; i < filas - 1; i++)
+        j = local_columnas - 1;
+        for (i = 1; i < local_filas - 1; i++)
         {
             yo = matrizLocal[i][j];
             e_arriba = matrizLocal[i - 1][j];
@@ -226,27 +241,27 @@ int main(int argc, char *argv[])
 
         // Se procesa esquina superior derecha
         i = 0;
-        j = columnas - 1;
+        j = local_columnas - 1;
         yo = matrizLocal[i][j];
-        e_arriba = fila_arriba[columnas - 1];
+        e_arriba = fila_arriba[local_columnas - 1];
         e_abajo = matrizLocal[i + 1][j];
         e_izq = matrizLocal[i][j - 1];
         e_der = columna_derecha[i];
         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
 
         // Se procesa esquina inferior izquierda
-        i = filas - 1;
+        i = local_filas - 1;
         j = 0;
         yo = matrizLocal[i][j];
         e_arriba = matrizLocal[i - 1][j];
         e_abajo = fila_abajo[j];
-        e_izq = columna_izquierda[filas - 1];
+        e_izq = columna_izquierda[local_filas - 1];
         e_der = matrizLocal[i][j + 1];
         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
 
         // Se procesa esquina inferior derecha
-        i = filas - 1;
-        j = columnas - 1;
+        i = local_filas - 1;
+        j = local_columnas - 1;
         yo = matrizLocal[i][j];
         e_arriba = matrizLocal[i - 1][j];
         e_abajo = fila_abajo[j];
@@ -269,7 +284,7 @@ int main(int argc, char *argv[])
     char nombre[30];
     i = j = 0;
     int coords[2];
-    MPI_Cart_coords(COMM_CART, rank_cart, 2, coords);                // Obtener coordenadas
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coords); // Obtener coordenadas
 
     sprintf(nombre, "subgrid_%d_%d.out", coords[0], coords[1]); // Usar coordenadas en el nombre
     FILE *f = fopen(nombre, "w");
@@ -279,9 +294,9 @@ int main(int argc, char *argv[])
         printf("ERROR: No se pudo abrir el archivo\n");
         exit(1);
     }
-    for (i = 0; i < Tlado; i++)
+    for (i = 0; i < local_filas; i++)
     {
-        for (j = 0; j < Tlado; j++)
+        for (j = 0; j < local_columnas; j++)
             fprintf(f, "%8.3f ", matrizLocal[i][j]);
         fprintf(f, "\n");
     }
@@ -293,6 +308,7 @@ int main(int argc, char *argv[])
     free(columna_derecha);
     free(*matrizLocal);
     free(matrizLocal);
+
     MPI_Type_free(&vectorVertical);
 
     MPI_Finalize();
