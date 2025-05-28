@@ -42,6 +42,13 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    /* ============================================================= DECLARACION DE VARIABLES  =============================================================== */
+
+    MPI_Comm COMM_CART;
+    MPI_Status status;
+
+    /* ======================================================= CREACION DEL MAPA: 2 DIMENSIONES (NO PERIODICO) ========================================================== */
+
     int rank, size, rank_cart, arriba, abajo, izq, der;
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -52,6 +59,11 @@ int main(int argc, char *argv[])
     int periods[] = {0, 0}; // No sera periodica ninguna dimension.
 
     int coordenadas[2];
+
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &COMM_CART);
+    MPI_Comm_rank(COMM_CART, &rank_cart);
+
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas);
 
     int cant_filas_mapa = dims[0], cant_columnas_mapa = dims[1];
 
@@ -67,7 +79,7 @@ int main(int argc, char *argv[])
 
     int offset_fila = coordenadas[0] * filas + (coordenadas[0] < exceso_fila ? coordenadas[0] : exceso_fila);
     int offset_columna = coordenadas[1] * columnas + (coordenadas[1] < exceso_columna ? coordenadas[1] : exceso_columna);
-    
+
     // Caso Tlado NO divisible por la cantidad de proceso
 
     /* =======================================================  SECCION RELACIONADA A MEMORIA (MATRIZ Y ARREGLOS) ======================================================= */
@@ -105,24 +117,12 @@ int main(int argc, char *argv[])
         matrizSiguiente[i] = *matrizSiguiente + local_columnas * i;
     }
 
-    /* ============================================================= DECLARACION DE VARIABLES  =============================================================== */
-
-    MPI_Comm COMM_CART;
-    MPI_Status status;
-
-    /* ======================================================= CREACION DEL MAPA: 2 DIMENSIONES (NO PERIODICO) ========================================================== */
-
-    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &COMM_CART);
-
     /* ============================================================= (1) INICIALIZACION DE LA MATRIZ  =============================================================== */
-    MPI_Comm_rank(COMM_CART, &rank_cart);
 
-    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas);
-    
     for (i = 0; i < local_filas; i++)
         for (j = 0; j < local_columnas; j++)
         {
-            matrizLocal[i][j] = (float)((i+offset_fila + 1)) * (Tlado + i+offset_fila) * (j + offset_columna+ 1) * (Tlado + j+offset_columna);
+            matrizLocal[i][j] = (float)((i + offset_fila + 1)) * (Tlado + i + offset_fila) * (j + offset_columna + 1) * (Tlado + j + offset_columna);
         }
 
     /* ======================================================= (2) SECCION DE ENVIO Y RECEPCION CON LOS VECINOS ========================================================== */
