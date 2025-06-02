@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
 
     MPI_Request array_request_recv[4], array_request_send[4];
     MPI_Status array_status_recv[4];
-
+    int count = 0;
     // REALIZAR LOS CALCULOS
     float e_arriba, e_abajo, e_izq, e_der, yo;
     for (p = 0; p < pasos; p++)
@@ -168,43 +168,40 @@ int main(int argc, char *argv[])
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba MANDO mi fila superior
         {
             MPI_Isend(&matrizLocal[0][0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &array_request_send[0]);
-            //printf("Listo MANDO mi fila S, procs [%d]\n", rank_cart);
         }
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo RECIBO su fila superior
         {
+            count++;
             MPI_Irecv(&fila_abajo[0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &array_request_recv[0]);
-            //printf("Listo RECIBO mi fila S, procs [%d]\n", rank_cart);
         }
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo MANDO mi fila inferior
         {
             MPI_Isend(&matrizLocal[local_filas - 1][0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &array_request_send[1]);
-            //printf("Listo MANDO mi fila I, procs [%d]\n", rank_cart);
         }
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba RECIBO su fila inferior
         {
+            count++;
             MPI_Irecv(&fila_arriba[0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &array_request_recv[1]);
-            //printf("Listo RECIBO mi fila I, procs [%d]\n", rank_cart);
         }
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna IZQ.
         {
             MPI_Isend(&matrizLocal[0][0], 1, vectorVertical, izq, 0, COMM_CART, &array_request_send[2]);
-            //printf("Listo MANDO mi fila CI, procs [%d]\n", rank_cart);
         }
         if (der != MPI_PROC_NULL) // si tengo vecino derecha RECIBO su columna IZQ (seria MI COLUMNA EXTERIOR UBICADA A LA DERECHA).
         {
+            count++;
             MPI_Irecv(&columna_derecha[0], local_filas, MPI_FLOAT, der, 0, COMM_CART, &array_request_recv[2]);
-            //printf("Listo RECIBO mi fila CD, procs [%d]\n", rank_cart);
         }
 
         if (der != MPI_PROC_NULL) // si tengo vecino derecha mando mi columna derecha
         {
             MPI_Isend(&matrizLocal[0][local_columnas - 1], 1, vectorVertical, der, 0, COMM_CART, &array_request_send[3]);
-            //printf("Listo MANDO mi fila CD, procs [%d]\n", rank_cart);
         }
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda RECIBO su columna derecha (seria MI COLUMNA EXTERIOR UBICADA A LA IZQUIERDA).
         {
+
+            count++;
             MPI_Irecv(&columna_izquierda[0], local_filas, MPI_FLOAT, izq, 0, COMM_CART, &array_request_recv[3]);
-           // printf("Listo RECIBO mi fila CI, procs [%d]\n", rank_cart);
         }
 
         /* ======================================================= (3) CALCULO DE LAS SECCION INTERIOR Y DE LOS BORDES ========================================================== */
@@ -220,58 +217,77 @@ int main(int argc, char *argv[])
                 e_der = matrizLocal[i][j + 1];
                 matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
             }
-        printf("Hice mi parte interior ------------- procs [%d]\n", rank_cart);
-        MPI_Waitall(4, array_request_recv, array_status_recv);
-        printf("Recibi mi partes exteriores -------------  procs [%d]\n", rank_cart);
 
-        // Se procesa fila superior
-        i = 0;
-        for (j = 1; j < local_columnas - 1; j++)
+        int indice;
+        printf("Parte interior\n ");
+        for (int x = 0; x < count; x++)
         {
-            yo = matrizLocal[i][j];
-            e_arriba = fila_arriba[j];
-            e_abajo = matrizLocal[i + 1][j];
-            e_izq = matrizLocal[i][j - 1];
-            e_der = matrizLocal[i][j + 1];
-            matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
-        }
 
-        // Se procesa fila inferior
+            MPI_Waitany(count, array_request_recv, &indice,&status);
+            printf("Indice: %d\n ",indice);
 
-        i = local_filas - 1;
-        for (j = 1; j < local_columnas - 1; j++)
-        {
-            yo = matrizLocal[i][j];
-            e_arriba = matrizLocal[i - 1][j];
-            e_abajo = fila_abajo[j];
-            e_izq = matrizLocal[i][j - 1];
-            e_der = matrizLocal[i][j + 1];
-            matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
-        }
+            switch (indice)
+            {
+            case 0:
 
-        // Se procesa columna izquierda
-        j = 0;
-        for (i = 1; i < local_filas - 1; i++)
-        {
-            yo = matrizLocal[i][j];
-            e_arriba = matrizLocal[i - 1][j];
-            e_abajo = matrizLocal[i + 1][j];
-            e_izq = columna_izquierda[i];
-            e_der = matrizLocal[i][j + 1];
-            matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
-        }
+                // Se procesa fila superior
+                i = 0;
+                for (j = 1; j < local_columnas - 1; j++)
+                {
+                    yo = matrizLocal[i][j];
+                    e_arriba = fila_arriba[j];
+                    e_abajo = matrizLocal[i + 1][j];
+                    e_izq = matrizLocal[i][j - 1];
+                    e_der = matrizLocal[i][j + 1];
+                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                }
+                break;
+            case 1:
+                // Se procesa fila inferior
 
-        // Se procesa columna derecha
-        j = local_columnas - 1;
-        for (i = 1; i < local_filas - 1; i++)
-        {
-            yo = matrizLocal[i][j];
-            e_arriba = matrizLocal[i - 1][j];
-            e_abajo = matrizLocal[i + 1][j];
-            e_izq = matrizLocal[i][j - 1];
-            ;
-            e_der = columna_derecha[i];
-            matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                i = local_filas - 1;
+                for (j = 1; j < local_columnas - 1; j++)
+                {
+                    yo = matrizLocal[i][j];
+                    e_arriba = matrizLocal[i - 1][j];
+                    e_abajo = fila_abajo[j];
+                    e_izq = matrizLocal[i][j - 1];
+                    e_der = matrizLocal[i][j + 1];
+                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                }
+                break;
+            case 2:
+                // Se procesa columna izquierda
+                j = 0;
+                for (i = 1; i < local_filas - 1; i++)
+                {
+                    yo = matrizLocal[i][j];
+                    e_arriba = matrizLocal[i - 1][j];
+                    e_abajo = matrizLocal[i + 1][j];
+                    e_izq = columna_izquierda[i];
+                    e_der = matrizLocal[i][j + 1];
+                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                }
+                break;
+            case 3:
+                // Se procesa columna derecha
+                j = local_columnas - 1;
+                for (i = 1; i < local_filas - 1; i++)
+                {
+                    yo = matrizLocal[i][j];
+                    e_arriba = matrizLocal[i - 1][j];
+                    e_abajo = matrizLocal[i + 1][j];
+                    e_izq = matrizLocal[i][j - 1];
+                    ;
+                    e_der = columna_derecha[i];
+                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                }
+
+                break;
+
+            default:
+                break;
+            }
         }
 
         // Se procesa esquina superior izquierda
