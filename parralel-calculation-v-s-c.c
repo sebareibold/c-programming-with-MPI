@@ -152,6 +152,9 @@ int main(int argc, char *argv[])
     MPI_Type_vector(local_filas, 1, local_columnas, MPI_FLOAT, &vectorVertical);
     MPI_Type_commit(&vectorVertical);
 
+    MPI_Request array_request_recv[4], array_request_send[4];
+    MPI_Status array_status_recv[4];
+
     // REALIZAR LOS CALCULOS
     float e_arriba, e_abajo, e_izq, e_der, yo;
     for (p = 0; p < pasos; p++)
@@ -164,45 +167,46 @@ int main(int argc, char *argv[])
 
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba MANDO mi fila superior
         {
-            MPI_Send(&matrizLocal[0][0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART);
-            printf("Listo MANDO mi fila S, procs [%d]\n",rank_cart);
+            MPI_Isend(&matrizLocal[0][0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &array_request_send[0]);
+            //printf("Listo MANDO mi fila S, procs [%d]\n", rank_cart);
         }
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo RECIBO su fila superior
         {
-            MPI_Recv(&fila_abajo[0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &status);
-            printf("Listo RECIBO mi fila S, procs [%d]\n",rank_cart);
+            MPI_Irecv(&fila_abajo[0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &array_request_recv[0]);
+            //printf("Listo RECIBO mi fila S, procs [%d]\n", rank_cart);
         }
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo MANDO mi fila inferior
         {
-            MPI_Send(&matrizLocal[local_filas - 1][0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART);
-            printf("Listo MANDO mi fila I, procs [%d]\n",rank_cart);
+            MPI_Isend(&matrizLocal[local_filas - 1][0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &array_request_send[1]);
+            //printf("Listo MANDO mi fila I, procs [%d]\n", rank_cart);
         }
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba RECIBO su fila inferior
         {
-            MPI_Recv(&fila_arriba[0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &status);
-            printf("Listo RECIBO mi fila I, procs [%d]\n",rank_cart);
+            MPI_Irecv(&fila_arriba[0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &array_request_recv[1]);
+            //printf("Listo RECIBO mi fila I, procs [%d]\n", rank_cart);
         }
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna IZQ.
         {
-            MPI_Send(&matrizLocal[0][0], 1, vectorVertical, izq, 0, COMM_CART);
-            printf("Listo MANDO mi fila CI, procs [%d]\n",rank_cart);
+            MPI_Isend(&matrizLocal[0][0], 1, vectorVertical, izq, 0, COMM_CART, &array_request_send[2]);
+            //printf("Listo MANDO mi fila CI, procs [%d]\n", rank_cart);
         }
         if (der != MPI_PROC_NULL) // si tengo vecino derecha RECIBO su columna IZQ (seria MI COLUMNA EXTERIOR UBICADA A LA DERECHA).
         {
-            MPI_Recv(&columna_derecha[0], local_filas, MPI_FLOAT, der, 0, COMM_CART, &status);
-            printf("Listo RECIBO mi fila CD, procs [%d]\n",rank_cart);
+            MPI_Irecv(&columna_derecha[0], local_filas, MPI_FLOAT, der, 0, COMM_CART, &array_request_recv[2]);
+            //printf("Listo RECIBO mi fila CD, procs [%d]\n", rank_cart);
         }
 
         if (der != MPI_PROC_NULL) // si tengo vecino derecha mando mi columna derecha
         {
-            MPI_Send(&matrizLocal[0][local_columnas - 1], 1, vectorVertical, der, 0, COMM_CART);
-            printf("Listo MANDO mi fila CD, procs [%d]\n",rank_cart);
+            MPI_Isend(&matrizLocal[0][local_columnas - 1], 1, vectorVertical, der, 0, COMM_CART, &array_request_send[3]);
+            //printf("Listo MANDO mi fila CD, procs [%d]\n", rank_cart);
         }
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda RECIBO su columna derecha (seria MI COLUMNA EXTERIOR UBICADA A LA IZQUIERDA).
         {
-            MPI_Recv(&columna_izquierda[0], local_filas, MPI_FLOAT, izq, 0, COMM_CART, &status);
-            printf("Listo RECIBO mi fila CI, procs [%d]\n",rank_cart);
+            MPI_Irecv(&columna_izquierda[0], local_filas, MPI_FLOAT, izq, 0, COMM_CART, &array_request_recv[3]);
+           // printf("Listo RECIBO mi fila CI, procs [%d]\n", rank_cart);
         }
+
         /* ======================================================= (3) CALCULO DE LAS SECCION INTERIOR Y DE LOS BORDES ========================================================== */
 
         // Se procesa el interior
@@ -216,6 +220,9 @@ int main(int argc, char *argv[])
                 e_der = matrizLocal[i][j + 1];
                 matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
             }
+        printf("Hice mi parte interior ------------- procs [%d]\n", rank_cart);
+        MPI_Waitall(4, array_request_recv, array_status_recv);
+        printf("Recibi mi partes exteriores -------------  procs [%d]\n", rank_cart);
 
         // Se procesa fila superior
         i = 0;
@@ -230,6 +237,7 @@ int main(int argc, char *argv[])
         }
 
         // Se procesa fila inferior
+
         i = local_filas - 1;
         for (j = 1; j < local_columnas - 1; j++)
         {
@@ -338,13 +346,13 @@ int main(int argc, char *argv[])
         fprintf(f, "\n");
     }
     fclose(f);
-    
+
     free(fila_arriba);
     free(fila_abajo);
     free(columna_izquierda);
     free(columna_derecha);
     free(matrizLocal);
-    
+
     MPI_Type_free(&vectorVertical);
 
     MPI_Finalize();
