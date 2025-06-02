@@ -22,6 +22,19 @@ double sampleTime()
     return ((double)tv.tv_sec + ((double)tv.tv_nsec) / 1000000000.0);
 }
 
+void calcularDIms(int size, int dims[2])
+{
+    dims[0] = 1;
+    dims[1] = size;
+    for (int i = 1; i <= sqrt(size); i++)
+    {
+        if (size % i == 0)
+        {
+            dims[0] = i;
+            dims[1] = size / i;
+        }
+    }
+}
 int main(int argc, char *argv[])
 {
     int p, i, j;
@@ -54,33 +67,40 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    int dims[] = {((int)sqrt(size)), size / ((int)sqrt(size))};
+    int dims[2];
+    calcularDIms(size, dims);
+    printf("Mapa [%d][%d], con size: [%d] \n", dims[0], dims[1], size);
 
     int periods[] = {0, 0}; // No sera periodica ninguna dimension.
 
     int coordenadas[2];
 
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &COMM_CART);
-    MPI_Comm_rank(COMM_CART, &rank_cart);
-
-    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas);
+    MPI_Comm_rank(COMM_CART, &rank_cart);                  // Obtenemos el rank en el nuevo Communicador
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas); // Obtenemos las coordenas
 
     int cant_filas_mapa = dims[0], cant_columnas_mapa = dims[1];
 
     // Caso TLado Divisible (por cantidad de procesos)
     int filas = Tlado / dims[0];
     int columnas = Tlado / dims[1];
+    printf("Soy Proceso %d \n", rank_cart);
+    printf("Filas (div de Tlado): %d \n", filas);
+    printf("Columnas (div de Tlado): %d\n", columnas);
 
+    // Tenes encuenta en resto de la division de arriba
     int exceso_fila = Tlado % dims[0];
     int exceso_columna = Tlado % dims[1];
 
+    // Obtenemos las filas locales de la matriz, teniendo en cuenta si hubo un exceso, si lo hubo entonces le agregamos una fila o columnas (por las 2 lineas)
     int local_filas = filas + (coordenadas[0] < exceso_fila ? 1 : 0);
     int local_columnas = columnas + (coordenadas[1] < exceso_columna ? 1 : 0);
+    printf("Local filas: %d\n", local_filas);
+    printf("Local Columnas: %d\n", local_columnas);
 
+    // Inicializa su inicio de fila y columna a partir de las coordenadas y fijas (o columnas), para despues si es que el exceso es menor a la coordenada entonces coordenas
     int offset_fila = coordenadas[0] * filas + (coordenadas[0] < exceso_fila ? coordenadas[0] : exceso_fila);
     int offset_columna = coordenadas[1] * columnas + (coordenadas[1] < exceso_columna ? coordenadas[1] : exceso_columna);
-
-    // Caso Tlado NO divisible por la cantidad de proceso
 
     /* =======================================================  SECCION RELACIONADA A MEMORIA (MATRIZ Y ARREGLOS) ======================================================= */
 
