@@ -152,13 +152,14 @@ int main(int argc, char *argv[])
     MPI_Type_vector(local_filas, 1, local_columnas, MPI_FLOAT, &vectorVertical);
     MPI_Type_commit(&vectorVertical);
 
-    MPI_Request array_request_recv[4], array_request_send[4];
+    MPI_Request array_request_recv[] = {MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL}, array_request_send[4];
     MPI_Status array_status_recv[4];
-    int count = 0;
+    int count = 4, count_real;
     // REALIZAR LOS CALCULOS
     float e_arriba, e_abajo, e_izq, e_der, yo;
     for (p = 0; p < pasos; p++)
     {
+        count_real = 0;
         // Obtenemos los RANKS de los vecinos de arriba y abajo
         MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); // dame los vecinos (destino)
 
@@ -171,8 +172,8 @@ int main(int argc, char *argv[])
         }
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo RECIBO su fila superior
         {
-            count++;
             MPI_Irecv(&fila_abajo[0], local_columnas, MPI_FLOAT, abajo, 0, COMM_CART, &array_request_recv[0]);
+            count_real++;
         }
         if (abajo != MPI_PROC_NULL) // si tengo vecino abajo MANDO mi fila inferior
         {
@@ -180,8 +181,8 @@ int main(int argc, char *argv[])
         }
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba RECIBO su fila inferior
         {
-            count++;
             MPI_Irecv(&fila_arriba[0], local_columnas, MPI_FLOAT, arriba, 0, COMM_CART, &array_request_recv[1]);
+            count_real++;
         }
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda mando mi columna IZQ.
         {
@@ -189,8 +190,8 @@ int main(int argc, char *argv[])
         }
         if (der != MPI_PROC_NULL) // si tengo vecino derecha RECIBO su columna IZQ (seria MI COLUMNA EXTERIOR UBICADA A LA DERECHA).
         {
-            count++;
             MPI_Irecv(&columna_derecha[0], local_filas, MPI_FLOAT, der, 0, COMM_CART, &array_request_recv[2]);
+            count_real++;
         }
 
         if (der != MPI_PROC_NULL) // si tengo vecino derecha mando mi columna derecha
@@ -199,9 +200,8 @@ int main(int argc, char *argv[])
         }
         if (izq != MPI_PROC_NULL) // si tengo vecino izquierda RECIBO su columna derecha (seria MI COLUMNA EXTERIOR UBICADA A LA IZQUIERDA).
         {
-
-            count++;
             MPI_Irecv(&columna_izquierda[0], local_filas, MPI_FLOAT, izq, 0, COMM_CART, &array_request_recv[3]);
+            count_real++;
         }
 
         /* ======================================================= (3) CALCULO DE LAS SECCION INTERIOR Y DE LOS BORDES ========================================================== */
@@ -218,13 +218,14 @@ int main(int argc, char *argv[])
                 matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
             }
 
-        int indice;
-        printf("Parte interior\n ");
-        for (int x = 0; x < count; x++)
+        int indice, x = 0, faltan = 1;
+        
+        while (x < count && faltan)
         {
 
-            MPI_Waitany(count, array_request_recv, &indice,&status);
-            printf("Indice: %d\n ",indice);
+            MPI_Waitany(count, array_request_recv, &indice, &status);
+
+            // printf("Indice: %d\n ",indice);
 
             switch (indice)
             {
@@ -278,7 +279,7 @@ int main(int argc, char *argv[])
                     e_arriba = matrizLocal[i - 1][j];
                     e_abajo = matrizLocal[i + 1][j];
                     e_izq = matrizLocal[i][j - 1];
-                    ;
+
                     e_der = columna_derecha[i];
                     matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
                 }
@@ -288,6 +289,14 @@ int main(int argc, char *argv[])
             default:
                 break;
             }
+
+            if (x >= count_real)
+            {
+                faltan = 0;
+                printf("No buscamos de mas, count real es: %d \n", count_real);
+            }
+
+            x++;
         }
 
         // Se procesa esquina superior izquierda
