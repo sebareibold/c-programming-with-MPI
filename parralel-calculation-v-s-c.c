@@ -7,13 +7,6 @@
 
 #define Cx 0.1f
 #define Cy 0.1f
-/*
-
-    1) Cada proceso hace la inicializacion de su MATRIZ (TENE encuenta las coordenadasenanas del MAPA y Tlado)
-    2) Cominucacio(tanto recibir como enviar) --> Todo lo recibido se almacena en los vectores auxiliares
-    3) Ya con los datos hacemos el calculo --> Imprimimos nuestro .out
-    4) El script genera el .out general a partir de los otro sub.... .out
-*/
 
 double sampleTime()
 {
@@ -35,6 +28,7 @@ void calcularDIms(int size, int dims[2])
         }
     }
 }
+
 int main(int argc, char *argv[])
 {
     int p, i, j;
@@ -55,51 +49,54 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    /* ============================================================= DECLARACION DE VARIABLES  =============================================================== */
+    /* ======================================================= CREACION DEL MAPA: ============================================================================ */
+
     MPI_Comm COMM_CART;
     MPI_Status status;
 
-    /* ======================================================= CREACION DEL MAPA: 2 DIMENSIONES (NO PERIODICO) ========================================================== */
+    int rank, // RANK del proceso en el COMM_WORLD
+        size, // Cantidad de procesos en el COMM_WORLD
+        rank_cart, // RANK del proceso en el COMM_CART
+        arriba, // RANK del vecino de arriba
+        abajo,  // RANK del vecino de abajo
+        izq,    // RANK del vecino de la izquierda
+        der;    // RANK del vecino de la derecha
 
-    int rank, size, rank_cart, arriba, abajo, izq, der;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Obtenemos el rank del proceso en el COMM_WORLD
+    MPI_Comm_size(MPI_COMM_WORLD, &size); // Obtenemos la cantidad de procesos en el COMM_WORLD
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    int dims[2]; // Dimensiones del mapa (2D) 
+    calcularDIms(size, dims); // Calculamos las dimensiones de la topologia cartesiana
 
-    int dims[2];
-    calcularDIms(size, dims);
     printf("Mapa [%d][%d], con size: [%d] \n", dims[0], dims[1], size);
 
     int periods[] = {0, 0}; // No sera periodica ninguna dimension.
 
-    int coordenadas[2];
+    int coordenadas[2]; // Coordenadas del proceso en el COMM_CART
 
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &COMM_CART);
-    MPI_Comm_rank(COMM_CART, &rank_cart);                  // Obtenemos el rank en el nuevo Communicador
-    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas); // Obtenemos las coordenas
+    // Creamos el COMM_CART, que es un comunicador cartesiano de 2 dimensiones (no periodico)
 
-    int cant_filas_mapa = dims[0], cant_columnas_mapa = dims[1];
+    MPI_Comm_rank(COMM_CART, &rank_cart);  // Obtenemos el rank del proceso en el COMM_CART
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coordenadas); // Obtenemos las coordenadas del proceso en el COMM_CART
 
-    // Caso TLado Divisible (por cantidad de procesos)
-    int filas = Tlado / dims[0];
-    int columnas = Tlado / dims[1];
-    printf("Soy Proceso %d \n", rank_cart);
-    printf("Filas (div de Tlado): %d \n", filas);
-    printf("Columnas (div de Tlado): %d\n", columnas);
+    // Calculamos la cantidad de filas y columnas segun las dimensiones de la topologia cartesiana
 
-    // Tenes encuenta en resto de la division de arriba
+    int filas = Tlado / dims[0]; // Division entera filas
+    int columnas = Tlado / dims[1]; // Division entera columnas
+
+
     int exceso_fila = Tlado % dims[0];
-    int exceso_columna = Tlado % dims[1];
+    int exceso_columna = Tlado % dims[1]; 
 
-    // Obtenemos las filas locales de la matriz, teniendo en cuenta si hubo un exceso, si lo hubo entonces le agregamos una fila o columnas (por las 2 lineas)
-    int local_filas = filas + (coordenadas[0] < exceso_fila ? 1 : 0);
-    int local_columnas = columnas + (coordenadas[1] < exceso_columna ? 1 : 0);
-    printf("Local filas: %d\n", local_filas);
-    printf("Local Columnas: %d\n", local_columnas);
+    int local_filas = filas + (coordenadas[0] < exceso_fila ? 1 : 0);   // Si la coordenada es menor al exceso, entonces se agrega una fila mas
+    int local_columnas = columnas + (coordenadas[1] < exceso_columna ? 1 : 0); // Si la coordenada es menor al exceso, entonces se agrega una columna mas
 
-    // Inicializa su inicio de fila y columna a partir de las coordenadas y fijas (o columnas), para despues si es que el exceso es menor a la coordenada entonces coordenas
+    // El offset es la cantidad de filas y columnas que se deben saltar para llegar a la posicion del proceso en la matriz global
+    // Si bien cada proceso trabaja con una matriz de dimensiones locales, el offset es necesario para inicializar correctamente los valores de la matriz local
     int offset_fila = coordenadas[0] * filas + (coordenadas[0] < exceso_fila ? coordenadas[0] : exceso_fila);
     int offset_columna = coordenadas[1] * columnas + (coordenadas[1] < exceso_columna ? coordenadas[1] : exceso_columna);
+    
 
     /* =======================================================  SECCION RELACIONADA A MEMORIA (MATRIZ Y ARREGLOS) ======================================================= */
 
@@ -114,14 +111,17 @@ int main(int argc, char *argv[])
     bzero(columna_izquierda, sizeof(float) * local_filas);
     bzero(columna_derecha, sizeof(float) * local_filas);
 
-    // Matriz Local de cada Proceso, dicha matriz es de TLado X TLado
+    // Se reservan memoria para las matrices locales y siguientes
+    // matrizLocal es la matriz que contiene los valores de temperatura en el paso actual
+    // matrizSiguiente es la matriz que contiene los valores de temperatura en el paso siguiente
+    // aux es una variable auxiliar para intercambiar los punteros de las matrices
     float **matrizLocal;
     float **matrizSiguiente;
     float **aux;
 
-    matrizLocal = (float **)malloc(sizeof(float *) * local_filas); // Declaracion eficiente de la matriz
+    matrizLocal = (float **)malloc(sizeof(float *) * local_filas);
     *matrizLocal = (float *)malloc(sizeof(float) * local_columnas * local_filas);
-    matrizSiguiente = (float **)malloc(sizeof(float *) * local_filas); // Declaracion eficiente de la matriz
+    matrizSiguiente = (float **)malloc(sizeof(float *) * local_filas);
     *matrizSiguiente = (float *)malloc(sizeof(float) * local_filas * local_columnas);
 
     if (matrizLocal == NULL || matrizSiguiente == NULL)
@@ -178,9 +178,9 @@ int main(int argc, char *argv[])
         bool franja_der_procesada = false;
         
         // Obtenemos los RANKS de los vecinos de arriba y abajo
-        MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); // dame los vecinos (destino)
+        MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); 
 
-        // lo mismo para la dimension 1,RANK de los vecinos izq y der
+        // lo mismo para la dimension 1,RANK de los vecinos izquierda y derecha
         MPI_Cart_shift(COMM_CART, 1, 1, &izq, &der);
 
         if (arriba != MPI_PROC_NULL) // si tengo vecino arriba MANDO mi fila superior
@@ -235,14 +235,18 @@ int main(int argc, char *argv[])
                 matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
             }
 
-        int recepciones_completadas = 0;    
+        int recepciones_completadas = 0; // Contador de recepciones completadas
         
         while (recepciones_completadas < count_real) 
         {
+            
             int indice_completado; 
+            
+            // Esperamos a que se complete alguna de las recepciones 
             MPI_Waitany(4, array_request_recv, &indice_completado, &status_recv_waitany); 
             recepciones_completadas++;
             
+            // Procesamos la recepción completada
             switch (indice_completado)
             {
             case 0:
@@ -401,7 +405,7 @@ int main(int argc, char *argv[])
         matrizLocal = matrizSiguiente;
         matrizSiguiente = aux;
 
-    } // Fin de pasos
+    }
 
     // time_spent = sampleTime() - time_spent;
     printf("Tlado: %d, Pasos: %d\n", Tlado, pasos);
@@ -411,7 +415,7 @@ int main(int argc, char *argv[])
     char nombre[30];
     i = j = 0;
     int coords[2];
-    MPI_Cart_coords(COMM_CART, rank_cart, 2, coords); // Obtener coordenadas
+    MPI_Cart_coords(COMM_CART, rank_cart, 2, coords);
 
     sprintf(nombre, "subgrid_%d_%d.out", coords[0], coords[1]); // Usar coordenadas en el nombre
     FILE *f = fopen(nombre, "w");
