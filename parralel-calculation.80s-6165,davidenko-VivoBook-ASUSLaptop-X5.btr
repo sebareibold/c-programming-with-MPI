@@ -1,0 +1,6 @@
+
+parralel-calculation:6165 terminated with signal 11 at PC=5e36a70bc607 SP=7fff06510c50.  Backtrace:
+./parralel-calculation(+0x4607)[0x5e36a70bc607]
+/lib/x86_64-linux-gnu/libc.so.6(+0x29d90)[0x76d016429d90]
+/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80)[0x76d016429e40]
+./parralel-calculation(+0x1405)[0x5e36a70b9405]

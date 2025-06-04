@@ -177,6 +177,8 @@ int main(int argc, char *argv[])
         bool franja_izq_procesada = false;
         bool franja_der_procesada = false;
         
+        bool esi = false, esd= false, eii = false, eid = false;
+        
         // Obtenemos los RANKS de los vecinos de arriba y abajo
         MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); 
 
@@ -234,6 +236,107 @@ int main(int argc, char *argv[])
                 e_der = matrizLocal[i][j + 1];
                 matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
             }
+            
+            
+       if (arriba == MPI_PROC_NULL && !franja_sup_procesada && local_filas > 0) {
+            i = 0;
+            for (j = 1; j < local_columnas - 1; j++) { 
+                yo = matrizLocal[i][j];
+                e_arriba = fila_arriba[j];
+                e_abajo = (local_filas > 1) ? matrizLocal[i + 1][j] : fila_abajo[j];
+                e_izq = matrizLocal[i][j - 1];
+                e_der = matrizLocal[i][j + 1];
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+            
+            if (der == MPI_PROC_NULL) {
+            	i = 0;
+		j = local_columnas - 1;
+		yo = matrizLocal[i][j];
+		e_arriba = fila_arriba[local_columnas - 1];
+		e_abajo = matrizLocal[i + 1][j];
+		e_izq = matrizLocal[i][j - 1];
+		e_der = columna_derecha[i];
+		matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+		esd = true;
+	   }
+	   
+	   if (izq == MPI_PROC_NULL) {
+	        i = 0;
+		j = 0;
+		yo = matrizLocal[i][j];
+		e_arriba = fila_arriba[0];
+		e_abajo = matrizLocal[i + 1][j];
+		e_izq = columna_izquierda[0];
+		e_der = matrizLocal[i][j + 1];
+		matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+		esi = true;
+	   
+	   }
+	   bool franja_sup_procesada = true;
+           
+        }
+        
+        if (abajo == MPI_PROC_NULL && !franja_inf_procesada && local_filas > 1) {
+            i = local_filas - 1;
+            for (j = 1; j < local_columnas - 1; j++) {
+                yo = matrizLocal[i][j];
+                e_arriba = matrizLocal[i - 1][j];
+                e_abajo = fila_abajo[j];
+                e_izq = matrizLocal[i][j - 1];
+                e_der = matrizLocal[i][j + 1];
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+            
+            if (der == MPI_PROC_NULL) {
+            	i = local_filas - 1;
+		j = local_columnas - 1;
+		yo = matrizLocal[i][j];
+		e_arriba = matrizLocal[i - 1][j];
+		e_abajo = fila_abajo[j];
+		e_izq = matrizLocal[i][j - 1];
+		e_der = columna_derecha[i];
+		matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+		eid = true;
+	   }
+	   
+	   if (izq == MPI_PROC_NULL) {
+	        i = local_filas - 1;
+		j = 0;
+		yo = matrizLocal[i][j];
+		e_arriba = matrizLocal[i - 1][j];
+		e_abajo = fila_abajo[j];
+		e_izq = columna_izquierda[local_filas - 1];
+		e_der = matrizLocal[i][j + 1];
+		matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+		eii = true;	   
+	   }
+	   bool franja_inf_procesada = true;
+        }
+        if (izq == MPI_PROC_NULL && !franja_izq_procesada && local_columnas > 0) {
+            j = 0;
+            for (i = 1; i < local_filas - 1; i++) {
+                yo = matrizLocal[i][j];
+                e_arriba = matrizLocal[i - 1][j];
+                e_abajo = matrizLocal[i + 1][j];
+                e_izq = columna_izquierda[i]; 
+                e_der = (local_columnas > 1) ? matrizLocal[i][j + 1] : columna_derecha[i]; 
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+            bool franja_izq_procesada = true;
+        }
+        if (der == MPI_PROC_NULL && !franja_der_procesada && local_columnas > 1) {
+            j = local_columnas - 1;
+            for (i = 1; i < local_filas - 1; i++) {
+                yo = matrizLocal[i][j];
+                e_arriba = matrizLocal[i - 1][j];
+                e_abajo = matrizLocal[i + 1][j];
+                e_izq = matrizLocal[i][j - 1];
+                e_der = columna_derecha[i];
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+            bool franja_der_procesada = true;
+        }
 
         int recepciones_completadas = 0; // Contador de recepciones completadas
         
@@ -261,6 +364,26 @@ int main(int argc, char *argv[])
                         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
                     }
                     franja_inf_procesada = true;
+                    if (!eii && !franja_izq_procesada) {
+                    	i = local_filas - 1;
+			j = 0;
+			yo = matrizLocal[i][j];
+			e_arriba = matrizLocal[i - 1][j];
+			e_abajo = fila_abajo[j];
+			e_izq = columna_izquierda[local_filas - 1];
+			e_der = matrizLocal[i][j + 1];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    if (!eid && !franja_der_procesada) {
+                    	i = local_filas - 1;
+			j = local_columnas - 1;
+			yo = matrizLocal[i][j];
+			e_arriba = matrizLocal[i - 1][j];
+			e_abajo = fila_abajo[j];
+			e_izq = matrizLocal[i][j - 1];
+			e_der = columna_derecha[i];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
                 }
                 break;
             case 1:
@@ -275,6 +398,26 @@ int main(int argc, char *argv[])
                         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
                     }
                     franja_sup_procesada = true;
+                    if (!esi && !franja_izq_procesada) {
+                    	i = 0;
+			j = 0;
+			yo = matrizLocal[i][j];
+			e_arriba = fila_arriba[0];
+			e_abajo = matrizLocal[i + 1][j];
+			e_izq = columna_izquierda[0];
+			e_der = matrizLocal[i][j + 1];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    if (!esd && !franja_der_procesada) {
+                    	i = 0;
+			j = local_columnas - 1;
+			yo = matrizLocal[i][j];
+			e_arriba = fila_arriba[local_columnas - 1];
+			e_abajo = matrizLocal[i + 1][j];
+			e_izq = matrizLocal[i][j - 1];
+			e_der = columna_derecha[i];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
                 }
                 break;
             case 2:
@@ -289,6 +432,26 @@ int main(int argc, char *argv[])
                         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
                     }
                     franja_der_procesada = true;
+                    if (!eid && !franja_inf_procesada) {
+                    	i = local_filas - 1;
+			j = local_columnas - 1;
+			yo = matrizLocal[i][j];
+			e_arriba = matrizLocal[i - 1][j];
+			e_abajo = fila_abajo[j];
+			e_izq = matrizLocal[i][j - 1];
+			e_der = columna_derecha[i];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    if (!esd && !franja_sup_procesada) {
+                    	i = 0;
+			j = local_columnas - 1;
+			yo = matrizLocal[i][j];
+			e_arriba = fila_arriba[local_columnas - 1];
+			e_abajo = matrizLocal[i + 1][j];
+			e_izq = matrizLocal[i][j - 1];
+			e_der = columna_derecha[i];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
                 }
                 break;
             case 3: 
@@ -303,99 +466,32 @@ int main(int argc, char *argv[])
                         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
                     }
                     franja_izq_procesada = true;
+                    if (!eii && !franja_inf_procesada) {
+                    	i = local_filas - 1;
+			j = 0;
+			yo = matrizLocal[i][j];
+			e_arriba = matrizLocal[i - 1][j];
+			e_abajo = fila_abajo[j];
+			e_izq = columna_izquierda[local_filas - 1];
+			e_der = matrizLocal[i][j + 1];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+				    }
+                    if (!esi && !franja_sup_procesada) {
+                    	i = 0;
+			j = 0;
+			yo = matrizLocal[i][j];
+			e_arriba = fila_arriba[0];
+			e_abajo = matrizLocal[i + 1][j];
+			e_izq = columna_izquierda[0];
+			e_der = matrizLocal[i][j + 1];
+			matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
                 }
                 break;
             default:
                 break;
             }
         }
-
-        if (arriba == MPI_PROC_NULL && !franja_sup_procesada && local_filas > 0) {
-            i = 0;
-            for (j = 1; j < local_columnas - 1; j++) { 
-                yo = matrizLocal[i][j];
-                e_arriba = fila_arriba[j];
-                e_abajo = (local_filas > 1) ? matrizLocal[i + 1][j] : fila_abajo[j];
-                e_izq = matrizLocal[i][j - 1];
-                e_der = matrizLocal[i][j + 1];
-                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
-            }
-           
-        }
-        
-        if (abajo == MPI_PROC_NULL && !franja_inf_procesada && local_filas > 1) {
-            i = local_filas - 1;
-            for (j = 1; j < local_columnas - 1; j++) {
-                yo = matrizLocal[i][j];
-                e_arriba = matrizLocal[i - 1][j];
-                e_abajo = fila_abajo[j];
-                e_izq = matrizLocal[i][j - 1];
-                e_der = matrizLocal[i][j + 1];
-                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
-            }
-        }
-        if (izq == MPI_PROC_NULL && !franja_izq_procesada && local_columnas > 0) {
-            j = 0;
-            for (i = 1; i < local_filas - 1; i++) {
-                yo = matrizLocal[i][j];
-                e_arriba = matrizLocal[i - 1][j];
-                e_abajo = matrizLocal[i + 1][j];
-                e_izq = columna_izquierda[i]; 
-                e_der = (local_columnas > 1) ? matrizLocal[i][j + 1] : columna_derecha[i]; 
-                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
-            }
-        }
-        if (der == MPI_PROC_NULL && !franja_der_procesada && local_columnas > 1) {
-            j = local_columnas - 1;
-            for (i = 1; i < local_filas - 1; i++) {
-                yo = matrizLocal[i][j];
-                e_arriba = matrizLocal[i - 1][j];
-                e_abajo = matrizLocal[i + 1][j];
-                e_izq = matrizLocal[i][j - 1];
-                e_der = columna_derecha[i];
-                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
-            }
-        }
-        
-        // Se procesa esquina superior izquierda
-        i = 0;
-        j = 0;
-        yo = matrizLocal[i][j];
-        e_arriba = fila_arriba[0];
-        e_abajo = matrizLocal[i + 1][j];
-        e_izq = columna_izquierda[0];
-        e_der = matrizLocal[i][j + 1];
-        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
-
-        // Se procesa esquina superior derecha
-        i = 0;
-        j = local_columnas - 1;
-        yo = matrizLocal[i][j];
-        e_arriba = fila_arriba[local_columnas - 1];
-        e_abajo = matrizLocal[i + 1][j];
-        e_izq = matrizLocal[i][j - 1];
-        e_der = columna_derecha[i];
-        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
-
-        // Se procesa esquina inferior izquierda
-        i = local_filas - 1;
-        j = 0;
-        yo = matrizLocal[i][j];
-        e_arriba = matrizLocal[i - 1][j];
-        e_abajo = fila_abajo[j];
-        e_izq = columna_izquierda[local_filas - 1];
-        e_der = matrizLocal[i][j + 1];
-        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
-
-        // Se procesa esquina inferior derecha
-        i = local_filas - 1;
-        j = local_columnas - 1;
-        yo = matrizLocal[i][j];
-        e_arriba = matrizLocal[i - 1][j];
-        e_abajo = fila_abajo[j];
-        e_izq = matrizLocal[i][j - 1];
-        e_der = columna_derecha[i];
-        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
 
 
         MPI_Waitall(4, array_request_send, statuses_send_waitall); 
