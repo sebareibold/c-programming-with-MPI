@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <strings.h>
-#include "mpi/mpi.h"
+#include <mpi.h>
 #include <math.h>
 
 #define Cx 0.1f
@@ -56,7 +56,6 @@ int main(int argc, char *argv[])
     }
 
     /* ============================================================= DECLARACION DE VARIABLES  =============================================================== */
-
     MPI_Comm COMM_CART;
     MPI_Status status;
 
@@ -152,14 +151,32 @@ int main(int argc, char *argv[])
     MPI_Type_vector(local_filas, 1, local_columnas, MPI_FLOAT, &vectorVertical);
     MPI_Type_commit(&vectorVertical);
 
-    MPI_Request array_request_recv[] = {MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL}, array_request_send[4];
-    MPI_Status array_status_recv[4];
+    
+    MPI_Request array_request_recv[4]; 
+    MPI_Request array_request_send[4];
+     
+    MPI_Status status_recv_waitany; 
+    MPI_Status statuses_send_waitall[4];
+    
     int count = 4, count_real;
-    // REALIZAR LOS CALCULOS
+    
     float e_arriba, e_abajo, e_izq, e_der, yo;
     for (p = 0; p < pasos; p++)
     {
+        // Se inicializan los requests a MPI_REQUEST_NULL en cada paso.
+        for(int k=0; k<4; ++k) {
+            array_request_recv[k] = MPI_REQUEST_NULL;
+            array_request_send[k] = MPI_REQUEST_NULL;
+        }
+ 
         count_real = 0;
+        
+        // Variables auxiliares para procesar las franjas (para no pasar por alto los bordes fisicos).
+        bool franja_sup_procesada = false;
+        bool franja_inf_procesada = false;
+        bool franja_izq_procesada = false;
+        bool franja_der_procesada = false;
+        
         // Obtenemos los RANKS de los vecinos de arriba y abajo
         MPI_Cart_shift(COMM_CART, 0, 1, &arriba, &abajo); // dame los vecinos (destino)
 
@@ -218,87 +235,124 @@ int main(int argc, char *argv[])
                 matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
             }
 
-        int indice, x = 0, faltan = 1;
+        int recepciones_completadas = 0;    
         
-        while (x < count && faltan)
+        while (recepciones_completadas < count_real) 
         {
-
-            MPI_Waitany(count, array_request_recv, &indice, &status);
-
-            // printf("Indice: %d\n ",indice);
-
-            switch (indice)
+            int indice_completado; 
+            MPI_Waitany(4, array_request_recv, &indice_completado, &status_recv_waitany); 
+            recepciones_completadas++;
+            
+            switch (indice_completado)
             {
             case 0:
-
-                // Se procesa fila superior
-                i = 0;
-                for (j = 1; j < local_columnas - 1; j++)
-                {
-                    yo = matrizLocal[i][j];
-                    e_arriba = fila_arriba[j];
-                    e_abajo = matrizLocal[i + 1][j];
-                    e_izq = matrizLocal[i][j - 1];
-                    e_der = matrizLocal[i][j + 1];
-                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                if (!franja_inf_procesada && local_filas > 1) { 
+                    i = local_filas - 1;
+                    for (j = 1; j < local_columnas - 1; j++) {
+                        yo = matrizLocal[i][j];
+                        e_arriba = matrizLocal[i - 1][j];
+                        e_abajo = fila_abajo[j];
+                        e_izq = matrizLocal[i][j - 1];
+                        e_der = matrizLocal[i][j + 1];
+                        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    franja_inf_procesada = true;
                 }
                 break;
             case 1:
-                // Se procesa fila inferior
-
-                i = local_filas - 1;
-                for (j = 1; j < local_columnas - 1; j++)
-                {
-                    yo = matrizLocal[i][j];
-                    e_arriba = matrizLocal[i - 1][j];
-                    e_abajo = fila_abajo[j];
-                    e_izq = matrizLocal[i][j - 1];
-                    e_der = matrizLocal[i][j + 1];
-                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                if (!franja_sup_procesada && local_filas > 0) {
+                    i = 0;
+                    for (j = 1; j < local_columnas - 1; j++) {
+                        yo = matrizLocal[i][j];
+                        e_arriba = fila_arriba[j];
+                        e_abajo = (local_filas > 1) ? matrizLocal[i + 1][j] : fila_abajo[j];
+                        e_izq = matrizLocal[i][j - 1];
+                        e_der = matrizLocal[i][j + 1];
+                        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    franja_sup_procesada = true;
                 }
                 break;
             case 2:
-                // Se procesa columna izquierda
-                j = 0;
-                for (i = 1; i < local_filas - 1; i++)
-                {
-                    yo = matrizLocal[i][j];
-                    e_arriba = matrizLocal[i - 1][j];
-                    e_abajo = matrizLocal[i + 1][j];
-                    e_izq = columna_izquierda[i];
-                    e_der = matrizLocal[i][j + 1];
-                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                if (!franja_der_procesada && local_columnas > 1) {
+                    j = local_columnas - 1;
+                    for (i = 1; i < local_filas - 1; i++) {
+                        yo = matrizLocal[i][j];
+                        e_arriba = matrizLocal[i - 1][j];
+                        e_abajo = matrizLocal[i + 1][j];
+                        e_izq = matrizLocal[i][j - 1];
+                        e_der = columna_derecha[i];
+                        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    franja_der_procesada = true;
                 }
                 break;
-            case 3:
-                // Se procesa columna derecha
-                j = local_columnas - 1;
-                for (i = 1; i < local_filas - 1; i++)
-                {
-                    yo = matrizLocal[i][j];
-                    e_arriba = matrizLocal[i - 1][j];
-                    e_abajo = matrizLocal[i + 1][j];
-                    e_izq = matrizLocal[i][j - 1];
-
-                    e_der = columna_derecha[i];
-                    matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+            case 3: 
+                if (!franja_izq_procesada && local_columnas > 0) {
+                    j = 0;
+                    for (i = 1; i < local_filas - 1; i++) {
+                        yo = matrizLocal[i][j];
+                        e_arriba = matrizLocal[i - 1][j];
+                        e_abajo = matrizLocal[i + 1][j];
+                        e_izq = columna_izquierda[i];
+                        e_der = (local_columnas > 1) ? matrizLocal[i][j + 1] : columna_derecha[i];
+                        matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+                    }
+                    franja_izq_procesada = true;
                 }
-
                 break;
-
             default:
                 break;
             }
-
-            if (x >= count_real)
-            {
-                faltan = 0;
-                printf("No buscamos de mas, count real es: %d \n", count_real);
-            }
-
-            x++;
         }
 
+        if (arriba == MPI_PROC_NULL && !franja_sup_procesada && local_filas > 0) {
+            i = 0;
+            for (j = 1; j < local_columnas - 1; j++) { 
+                yo = matrizLocal[i][j];
+                e_arriba = fila_arriba[j];
+                e_abajo = (local_filas > 1) ? matrizLocal[i + 1][j] : fila_abajo[j];
+                e_izq = matrizLocal[i][j - 1];
+                e_der = matrizLocal[i][j + 1];
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+           
+        }
+        
+        if (abajo == MPI_PROC_NULL && !franja_inf_procesada && local_filas > 1) {
+            i = local_filas - 1;
+            for (j = 1; j < local_columnas - 1; j++) {
+                yo = matrizLocal[i][j];
+                e_arriba = matrizLocal[i - 1][j];
+                e_abajo = fila_abajo[j];
+                e_izq = matrizLocal[i][j - 1];
+                e_der = matrizLocal[i][j + 1];
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+        }
+        if (izq == MPI_PROC_NULL && !franja_izq_procesada && local_columnas > 0) {
+            j = 0;
+            for (i = 1; i < local_filas - 1; i++) {
+                yo = matrizLocal[i][j];
+                e_arriba = matrizLocal[i - 1][j];
+                e_abajo = matrizLocal[i + 1][j];
+                e_izq = columna_izquierda[i]; 
+                e_der = (local_columnas > 1) ? matrizLocal[i][j + 1] : columna_derecha[i]; 
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+        }
+        if (der == MPI_PROC_NULL && !franja_der_procesada && local_columnas > 1) {
+            j = local_columnas - 1;
+            for (i = 1; i < local_filas - 1; i++) {
+                yo = matrizLocal[i][j];
+                e_arriba = matrizLocal[i - 1][j];
+                e_abajo = matrizLocal[i + 1][j];
+                e_izq = matrizLocal[i][j - 1];
+                e_der = columna_derecha[i];
+                matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2*yo) + Cy * (e_der + e_izq - 2*yo);
+            }
+        }
+        
         // Se procesa esquina superior izquierda
         i = 0;
         j = 0;
@@ -338,6 +392,9 @@ int main(int argc, char *argv[])
         e_izq = matrizLocal[i][j - 1];
         e_der = columna_derecha[i];
         matrizSiguiente[i][j] = yo + Cx * (e_abajo + e_arriba - 2 * yo) + Cy * (e_der + e_izq - 2 * yo);
+
+
+        MPI_Waitall(4, array_request_send, statuses_send_waitall); 
 
         // Se intercambian los punteros para que matrizLocal contenga los valores de temperatura recientemente calculados
         aux = matrizLocal;
